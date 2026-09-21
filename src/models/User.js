@@ -7,6 +7,14 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String },
     googleId: { type: String },
+    phone: { type: String, trim: true, maxlength: 25 },
+    avatar: { type: String, trim: true },
+    addresses: [{
+      label: { type: String, trim: true, default: "Home", maxlength: 40 },
+      address: { type: String, trim: true, required: true, maxlength: 250 },
+      city: { type: String, trim: true, maxlength: 80 },
+      postalCode: { type: String, trim: true, maxlength: 20 }
+    }],
     role: {
       type: String,
       enum: ["user", "admin"],

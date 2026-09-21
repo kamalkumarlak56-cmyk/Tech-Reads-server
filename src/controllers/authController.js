@@ -13,6 +13,15 @@ const authResponse = (user) => ({
   token: generateToken(user)
 });
 
+const profileResponse = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone || "",
+  avatar: user.avatar || "",
+  addresses: user.addresses || []
+});
+
 const register = asyncHandler(async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -75,4 +84,37 @@ const allUsers = asyncHandler(async (req, res) => {
   res.json(users);
 });
 
-module.exports = { register, login, googleLogin, allUsers };
+const getProfile = asyncHandler(async (req, res) => {
+  res.json(profileResponse(req.user));
+});
+
+const updateProfile = asyncHandler(async (req, res) => {
+  const { name, phone, avatar, addresses } = req.body;
+
+  if (!name?.trim()) {
+    res.status(400);
+    throw new Error("Full name is required");
+  }
+
+  if (addresses !== undefined && !Array.isArray(addresses)) {
+    res.status(400);
+    throw new Error("Addresses must be a list");
+  }
+
+  req.user.name = name.trim();
+  req.user.phone = phone?.trim() || "";
+  req.user.avatar = avatar?.trim() || "";
+  if (addresses !== undefined) {
+    req.user.addresses = addresses.map((item) => ({
+      label: item.label?.trim() || "Home",
+      address: item.address?.trim() || "",
+      city: item.city?.trim() || "",
+      postalCode: item.postalCode?.trim() || ""
+    })).filter((item) => item.address);
+  }
+
+  await req.user.save();
+  res.json(profileResponse(req.user));
+});
+
+module.exports = { register, login, googleLogin, allUsers, getProfile, updateProfile };

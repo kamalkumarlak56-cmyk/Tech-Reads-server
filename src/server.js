@@ -8,6 +8,7 @@ const productRoutes = require("./routes/productRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
 const googleBooksRoutes = require("./routes/googleBooksRoutes");
+const contactIssueRoutes = require("./routes/contactIssueRoutes");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 
 dotenv.config();
@@ -16,7 +17,7 @@ connectDB();
 const app = express();
 
 app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
-app.use(express.json());
+app.use(express.json({ limit: "3mb" }));
 app.use(morgan("dev"));
 
 app.get("/", (req, res) => {
@@ -28,6 +29,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/google-books", googleBooksRoutes);
+app.use("/api/issues", contactIssueRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
