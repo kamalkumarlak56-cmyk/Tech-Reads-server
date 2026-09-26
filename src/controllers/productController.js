@@ -28,7 +28,7 @@ const getProducts = asyncHandler(async (req, res) => {
 });
 
 const getProductById = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(req.params.id).populate("createdBy", "name email");
 
   if (!product) {
     res.status(404);
@@ -48,7 +48,11 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
+  const editableFields = ["title", "category", "technology", "description", "author", "price", "image", "stock", "googleBookId"];
+  const updates = Object.fromEntries(
+    editableFields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]])
+  );
+  const product = await Product.findByIdAndUpdate(req.params.id, updates, {
     new: true,
     runValidators: true
   });

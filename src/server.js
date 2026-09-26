@@ -3,6 +3,8 @@ const cors = require("cors");
 const morgan = require("morgan");
 const dotenv = require("dotenv");
 const connectDB = require("./config/db");
+const User = require("./models/User");
+const Product = require("./models/Product");
 const authRoutes = require("./routes/authRoutes");
 const productRoutes = require("./routes/productRoutes");
 const orderRoutes = require("./routes/orderRoutes");
@@ -12,7 +14,6 @@ const contactIssueRoutes = require("./routes/contactIssueRoutes");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 
 dotenv.config();
-connectDB();
 
 const app = express();
 
@@ -35,6 +36,52 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+
+const ensureAdminAccount = async () => {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+
+  if (!email && !password) return null;
+  if (!email || !password) {
+    throw new Error("Set both ADMIN_EMAIL and ADMIN_PASSWORD to configure the admin account");
+  }
+
+  const admin = await User.findOne({ email });
+  if (admin) {
+    admin.name = process.env.ADMIN_NAME?.trim() || admin.name || "Administrator";
+    admin.password = password;
+    admin.role = "admin";
+    await admin.save();
+    return admin;
+  }
+
+  return User.create({
+    name: process.env.ADMIN_NAME?.trim() || "Administrator",
+    email,
+    password,
+    role: "admin"
+  });
+};
+
+const startServer = async () => {
+  await connectDB();
+  const configuredAdmin = await ensureAdminAccount();
+
+  // Attach legacy products created before creator tracking was required.
+  const admin = configuredAdmin || await User.findOne({ role: "admin" }).sort({ createdAt: 1 });
+  if (admin) {
+    await Product.updateMany(
+      { $or: [{ createdBy: { $exists: false } }, { createdBy: null }] },
+      { $set: { createdBy: admin._id } }
+    );
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+};
+
+startServer().catch((error) => {
+  console.error(`Server startup error: ${error.message}`);
+  process.exit(1);
 });

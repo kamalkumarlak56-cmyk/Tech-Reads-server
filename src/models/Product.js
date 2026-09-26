@@ -17,7 +17,8 @@ const productSchema = new mongoose.Schema(
     googleBookId: { type: String },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
+      ref: "User",
+      required: true
     },
     rating: { type: Number, default: 0 },
     reviewCount: { type: Number, default: 0 },
