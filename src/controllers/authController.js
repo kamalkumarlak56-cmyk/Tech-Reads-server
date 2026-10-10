@@ -2,6 +2,7 @@ const asyncHandler = require("express-async-handler");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
+const Order = require("../models/Order");
 const generateToken = require("../utils/generateToken");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -17,6 +18,10 @@ const authResponse = (user) => ({
   name: user.name,
   email: user.email,
   role: user.role,
+  phone: user.phone || "",
+  avatar: user.avatar || "",
+  addresses: user.addresses || [],
+  createdAt: user.createdAt,
   token: generateToken(user)
 });
 
@@ -24,13 +29,17 @@ const profileResponse = (user) => ({
   _id: user._id,
   name: user.name,
   email: user.email,
+  role: user.role,
   phone: user.phone || "",
   avatar: user.avatar || "",
-  addresses: user.addresses || []
+  addresses: user.addresses || [],
+  createdAt: user.createdAt
 });
 
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+  const name = req.body.name?.trim();
+  const email = req.body.email?.trim().toLowerCase();
+  const { password } = req.body;
 
   if (!name || !email || !password) {
     res.status(400);
@@ -55,38 +64,25 @@ const login = asyncHandler(async (req, res) => {
     throw new Error("Email and password are required");
   }
 
+  // First check database user credentials (supports custom admin email/password edits)
+  const user = await User.findOne({ email });
+  if (user && user.password && (await user.matchPassword(password))) {
+    return res.json(authResponse(user));
+  }
+
+  // Fallback provisioning if no admin account exists yet in DB and env credentials match
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   if (adminEmail && email === adminEmail) {
-    // The configured admin can sign in even if startup provisioning did not run
-    // (for example, when the environment variables were added after startup).
-    if (!process.env.ADMIN_PASSWORD || !secureStringEqual(password, process.env.ADMIN_PASSWORD)) {
-      res.status(401);
-      throw new Error("Invalid email or password");
-    }
-
-    let admin = await User.findOne({ email: adminEmail });
-    if (!admin) {
-      admin = new User({
+    const existingAdmin = await User.findOne({ role: "admin" });
+    if (!existingAdmin && process.env.ADMIN_PASSWORD && secureStringEqual(password, process.env.ADMIN_PASSWORD)) {
+      const admin = await User.create({
         name: process.env.ADMIN_NAME?.trim() || "Administrator",
         email: adminEmail,
         password: process.env.ADMIN_PASSWORD,
         role: "admin"
       });
-    } else {
-      admin.name = process.env.ADMIN_NAME?.trim() || admin.name || "Administrator";
-      admin.role = "admin";
-      if (!admin.password || !(await admin.matchPassword(process.env.ADMIN_PASSWORD))) {
-        admin.password = process.env.ADMIN_PASSWORD;
-      }
+      return res.json(authResponse(admin));
     }
-    await admin.save();
-    return res.json(authResponse(admin));
-  }
-
-  const user = await User.findOne({ email });
-
-  if (user && user.password && (await user.matchPassword(password))) {
-    return res.json(authResponse(user));
   }
 
   res.status(401);
@@ -107,22 +103,44 @@ const googleLogin = asyncHandler(async (req, res) => {
   });
 
   const payload = ticket.getPayload();
-  let user = await User.findOne({ email: payload.email });
+  const email = payload?.email?.trim().toLowerCase();
+
+  if (!email) {
+    res.status(400);
+    throw new Error("Google account email not found");
+  }
+
+  let user = await User.findOne({ email });
 
   if (!user) {
     user = await User.create({
-      name: payload.name,
-      email: payload.email,
+      name: payload.name || "Google User",
+      email,
       googleId: payload.sub
     });
+  } else if (!user.googleId && payload.sub) {
+    user.googleId = payload.sub;
+    await user.save();
   }
 
   res.json(authResponse(user));
 });
 
 const allUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({}).select("name email role createdAt").sort({ createdAt: -1 });
+  const users = await User.find({}).select("-password").sort({ createdAt: -1 }).lean();
   res.json(users);
+});
+
+const getUserDetails = asyncHandler(async (req, res) => {
+  const [user, orders] = await Promise.all([
+    User.findById(req.params.id).select("-password").lean(),
+    Order.find({ user: req.params.id }).sort({ createdAt: -1 }).lean()
+  ]);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+  res.json({ user, orders });
 });
 
 const getProfile = asyncHandler(async (req, res) => {
@@ -130,22 +148,56 @@ const getProfile = asyncHandler(async (req, res) => {
 });
 
 const updateProfile = asyncHandler(async (req, res) => {
-  const { name, phone, avatar, addresses } = req.body;
+  const { name, email, password, phone, avatar, addresses } = req.body;
 
-  if (!name?.trim()) {
-    res.status(400);
-    throw new Error("Full name is required");
+  if (name !== undefined) {
+    if (!name.trim()) {
+      res.status(400);
+      throw new Error("Full name is required");
+    }
+    req.user.name = name.trim();
   }
 
-  if (addresses !== undefined && !Array.isArray(addresses)) {
-    res.status(400);
-    throw new Error("Addresses must be a list");
+  if (email !== undefined) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      res.status(400);
+      throw new Error("Email address is required");
+    }
+    if (normalizedEmail !== req.user.email) {
+      const emailTaken = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: req.user._id }
+      });
+      if (emailTaken) {
+        res.status(409);
+        throw new Error("Email address is already in use by another account");
+      }
+      req.user.email = normalizedEmail;
+    }
   }
 
-  req.user.name = name.trim();
-  req.user.phone = phone?.trim() || "";
-  req.user.avatar = avatar?.trim() || "";
+  if (password !== undefined && password !== "") {
+    if (password.length < 4) {
+      res.status(400);
+      throw new Error("Password must be at least 4 characters");
+    }
+    req.user.password = password;
+  }
+
+  if (phone !== undefined) {
+    req.user.phone = phone.trim();
+  }
+
+  if (avatar !== undefined) {
+    req.user.avatar = avatar.trim();
+  }
+
   if (addresses !== undefined) {
+    if (!Array.isArray(addresses)) {
+      res.status(400);
+      throw new Error("Addresses must be a list");
+    }
     req.user.addresses = addresses.map((item) => ({
       label: item.label?.trim() || "Home",
       address: item.address?.trim() || "",
@@ -158,4 +210,4 @@ const updateProfile = asyncHandler(async (req, res) => {
   res.json(profileResponse(req.user));
 });
 
-module.exports = { register, login, googleLogin, allUsers, getProfile, updateProfile };
+module.exports = { register, login, googleLogin, allUsers, getUserDetails, getProfile, updateProfile };

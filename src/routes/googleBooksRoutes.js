@@ -25,10 +25,10 @@ router.get(
     const data = await response.json();
     const books = (data.items || []).map((item) => ({
       googleBookId: item.id,
-      title: item.volumeInfo.title,
-      author: item.volumeInfo.authors?.join(", "),
-      description: item.volumeInfo.description,
-      image: item.volumeInfo.imageLinks?.thumbnail,
+      title: item.volumeInfo?.title || "Untitled",
+      author: item.volumeInfo?.authors?.join(", ") || "Unknown Author",
+      description: item.volumeInfo?.description || "",
+      image: (item.volumeInfo?.imageLinks?.thumbnail || item.volumeInfo?.imageLinks?.smallThumbnail || "")?.replace(/^http:\/\//i, "https://"),
       technology: q
     }));
 

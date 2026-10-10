@@ -31,14 +31,17 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["cod", "cash", "upi", "online", "demo"],
-      default: "online"
+      enum: ["cod", "cash", "upi", "online", "razorpay", "demo"],
+      default: "razorpay"
     },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed"],
       default: "pending"
     },
+    razorpayOrderId: String,
+    razorpayPaymentId: String,
+    razorpaySignature: String,
     paidAt: Date,
     deliveredAt: Date,
     customerName: String,

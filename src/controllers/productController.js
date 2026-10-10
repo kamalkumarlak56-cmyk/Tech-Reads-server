@@ -1,20 +1,26 @@
 const asyncHandler = require("express-async-handler");
 const Product = require("../models/Product");
+const Review = require("../models/Review");
+
+const escapeRegex = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const getProducts = asyncHandler(async (req, res) => {
   const { search = "", category, technology, sort = "latest" } = req.query;
   const query = {};
 
-  if (search) {
+  if (search && search.trim()) {
+    const escapedSearch = escapeRegex(search.trim());
     query.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { author: { $regex: search, $options: "i" } },
-      { technology: { $regex: search, $options: "i" } }
+      { title: { $regex: escapedSearch, $options: "i" } },
+      { author: { $regex: escapedSearch, $options: "i" } },
+      { technology: { $regex: escapedSearch, $options: "i" } }
     ];
   }
 
   if (category) query.category = category;
-  if (technology) query.technology = { $regex: technology, $options: "i" };
+  if (technology && technology.trim()) {
+    query.technology = { $regex: escapeRegex(technology.trim()), $options: "i" };
+  }
 
   const sortMap = {
     latest: { createdAt: -1 },
@@ -23,12 +29,12 @@ const getProducts = asyncHandler(async (req, res) => {
     rating: { rating: -1 }
   };
 
-  const products = await Product.find(query).sort(sortMap[sort] || sortMap.latest);
+  const products = await Product.find(query).sort(sortMap[sort] || sortMap.latest).lean();
   res.json(products);
 });
 
 const getProductById = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id).populate("createdBy", "name email");
+  const product = await Product.findById(req.params.id).populate("createdBy", "name email").lean();
 
   if (!product) {
     res.status(404);
@@ -72,6 +78,8 @@ const deleteProduct = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Product not found");
   }
+
+  await Review.deleteMany({ product: req.params.id });
 
   res.json({ message: "Product deleted" });
 });

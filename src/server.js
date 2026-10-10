@@ -12,7 +12,7 @@ const reviewRoutes = require("./routes/reviewRoutes");
 const googleBooksRoutes = require("./routes/googleBooksRoutes");
 const contactIssueRoutes = require("./routes/contactIssueRoutes");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
-
+const uploadRoutes = require("./routes/uploadRoutes");
 dotenv.config();
 
 const app = express();
@@ -32,6 +32,7 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/google-books", googleBooksRoutes);
 app.use("/api/issues", contactIssueRoutes);
 
+app.use("/api/upload", uploadRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
@@ -44,6 +45,11 @@ const ensureAdminAccount = async () => {
   if (!email && !password) return null;
   if (!email || !password) {
     throw new Error("Set both ADMIN_EMAIL and ADMIN_PASSWORD to configure the admin account");
+  }
+
+  const existingAdmin = await User.findOne({ role: "admin" }).sort({ createdAt: 1 });
+  if (existingAdmin) {
+    return existingAdmin;
   }
 
   const admin = await User.findOne({ email });
